@@ -33,4 +33,4 @@ Make sure you have the necessary dependencies installed. The project requires th
 
 ## License
 
-[Specify your license here]
+This project is licensed under the MIT License - see the LICENSE file for details.
