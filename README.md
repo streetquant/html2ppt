@@ -24,12 +24,62 @@ python html2ppt.py <input_html_file> <output_pptx_file>
 
 ## Installation
 
-Make sure you have the necessary dependencies installed. The project requires the python-pptx library for creating PowerPoint files from HTML content.
+1. Clone or download the repository:
+   ```bash
+   git clone https://github.com/streetquant/html2ppt.git
+   cd html2ppt
+   ```
+
+2. Create a virtual environment (recommended for Python dependency management):
+   ```bash
+   python -m venv venv
+   ```
+
+3. Activate the virtual environment:
+   ```bash
+   # On Linux/Mac:
+   source venv/bin/activate
+
+   # On Windows:
+   venv\Scripts\activate
+   ```
+
+4. Install the required dependencies:
+   ```bash
+   pip install python-pptx playwright
+   ```
+
+5. Install Playwright's browser binaries:
+   ```bash
+   playwright install chromium
+   ```
+
+6. Make the script executable:
+   ```bash
+   chmod +x html2ppt
+   ```
+
+The tool must run within the virtual environment that contains the required dependencies.
 
 ## Dependencies
 
 - python-pptx
-- Other dependencies as specified in requirements.txt (if any)
+- playwright
+- chromium browser (installed via playwright)
+
+## Running the Tool
+
+Remember to always activate the virtual environment before running the tool:
+
+```bash
+source venv/bin/activate  # On Linux/Mac
+# or
+venv\Scripts\activate     # On Windows
+
+./html2ppt <input_html_file> <output_pptx_file>
+```
+
+The wrapper script (html2ppt) will automatically handle virtual environment activation, but if you run the Python script directly, ensure your virtual environment is active.
 
 ## License
 
