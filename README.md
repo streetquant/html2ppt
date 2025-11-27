@@ -1,26 +1,31 @@
 # HTML to PowerPoint Converter
 
-This tool converts HTML content into PowerPoint presentations.
+This tool converts HTML presentations into PowerPoint presentations, with support for both screenshot-based conversion (preserving exact visual formatting) and editable conversion (preserving text and elements as editable components).
 
 ## Features
 
 - Converts HTML content to PowerPoint format
 - Preserves basic HTML formatting
 - Supports various HTML elements and styling
+- Generates both screenshot-based and editable PowerPoint files
 
 ## Usage
 
 To use the HTML to PowerPoint converter, run:
 
 ```bash
-./html2ppt <input_html_file> <output_pptx_file>
+./html2ppt <input_html_file>
 ```
 
 Or using the Python script:
 
 ```bash
-python html2ppt.py <input_html_file> <output_pptx_file>
+python html2ppt.py <input_html_file>
 ```
+
+The tool will generate two PowerPoint files in the current directory:
+- `{input_filename}.pptx` - A screenshot-based version that preserves exact visual formatting
+- `{input_filename}_editable.pptx` - An editable version with text, shapes, and images as separate elements
 
 ## Installation
 
@@ -76,7 +81,7 @@ source venv/bin/activate  # On Linux/Mac
 # or
 venv\Scripts\activate     # On Windows
 
-./html2ppt <input_html_file> <output_pptx_file>
+./html2ppt <input_html_file>
 ```
 
 The wrapper script (html2ppt) will automatically handle virtual environment activation, but if you run the Python script directly, ensure your virtual environment is active.
