@@ -9,13 +9,47 @@ from pptx.util import Inches, Pt
 from pptx.dml.color import RGBColor
 from pptx.enum.text import PP_ALIGN
 from pptx.enum.shapes import MSO_SHAPE
+from pptx.enum.text import MSO_ANCHOR, PP_PARAGRAPH_ALIGNMENT
+from pptx.enum.dml import MSO_THEME_COLOR
+from pptx.enum.action import PP_ACTION
+import base64
+from PIL import Image
+import io
 
 # --- CONFIGURATION ---
-SLIDE_WIDTH_PX = 1200
-SLIDE_HEIGHT_PX = 675
+# Google Slides uses 13.33" x 7.5" at 96 DPI (1280x720) or 16:9 aspect ratio
+SLIDE_WIDTH_PX = 1280  # Changed to 16:9 aspect ratio (Google Slides standard)
+SLIDE_HEIGHT_PX = 720  # Changed to 16:9 aspect ratio (Google Slides standard)
 PX_TO_INCH = 1/96
 PPTX_WIDTH = Inches(SLIDE_WIDTH_PX * PX_TO_INCH)
 PPTX_HEIGHT = Inches(SLIDE_HEIGHT_PX * PX_TO_INCH)
+
+# Font mapping for better typography preservation
+FONT_MAPPING = {
+    'helvetica': 'Helvetica',
+    'arial': 'Arial',
+    'times new roman': 'Times New Roman',
+    'georgia': 'Georgia',
+    'verdana': 'Verdana',
+    'tahoma': 'Tahoma',
+    'trebuchet ms': 'Trebuchet MS',
+    'garamond': 'Garamond',
+    'comic sans ms': 'Comic Sans MS',
+    'impact': 'Impact',
+    'lucida sans unicode': 'Lucida Sans Unicode',
+    'palatino linotype': 'Palatino Linotype',
+    'calibri': 'Calibri',
+    'cambria': 'Cambria',
+    'candara': 'Candara',
+    'consolas': 'Consolas',
+    'corbel': 'Corbel',
+    'franklin gothic medium': 'Franklin Gothic Medium',
+    'gabriola': 'Gabriola',
+    'geneva': 'Geneva',
+    'lucida grande': 'Lucida Grande',
+    'segoe ui': 'Segoe UI',
+    'trebuchet ms': 'Trebuchet MS'
+}
 
 def hex_to_rgb(hex_str):
     hex_str = hex_str.lstrip('#')
@@ -36,6 +70,23 @@ def map_alignment(align_str):
     if 'right' in align_str: return PP_ALIGN.RIGHT
     if 'justify' in align_str: return PP_ALIGN.JUSTIFY
     return PP_ALIGN.LEFT
+
+def optimize_image(image_path, max_width=1920, max_height=1080, quality=85):
+    """Optimize image to reduce file size while maintaining quality"""
+    try:
+        with Image.open(image_path) as img:
+            # Calculate new dimensions maintaining aspect ratio
+            original_width, original_height = img.size
+            if original_width > max_width or original_height > max_height:
+                ratio = min(max_width/original_width, max_height/original_height)
+                new_width = int(original_width * ratio)
+                new_height = int(original_height * ratio)
+                img = img.resize((new_width, new_height), Image.Resampling.LANCZOS)
+            
+            # Save with optimized quality
+            img.save(image_path, optimize=True, quality=quality)
+    except Exception as e:
+        print(f"Warning: Could not optimize image {image_path}: {e}")
 
 async def generate_screenshot_pptx(html_uri, output_path):
     print(f"Generating Screenshot PPTX: {output_path}")
@@ -62,6 +113,9 @@ async def generate_screenshot_pptx(html_uri, output_path):
         for i, slide in enumerate(slides):
             screenshot_path = f"temp_slide_{i}.png"
             await slide.screenshot(path=screenshot_path)
+            
+            # Optimize the image before adding to presentation
+            optimize_image(screenshot_path)
             
             pptx_slide = prs.slides.add_slide(blank_slide_layout)
             pptx_slide.shapes.add_picture(
@@ -163,7 +217,13 @@ async def generate_editable_pptx(html_uri, output_path):
                     sp.line.fill.background()
 
             # --- LAYER 2: IMAGES ---
-            image_selectors = ['.viz-box', '.dashboard-placeholder', '.bi', '.corner-icon', '.fa', 'img', 'svg']
+            # Extended selector list to include more HTML elements
+            image_selectors = [
+                '.viz-box', '.dashboard-placeholder', '.bi', '.corner-icon', '.fa', 
+                'img', 'svg', 'picture', 'canvas', 'video', 'figure', 'figcaption',
+                '.image', '.photo', '.graphic', '.icon', '.logo', '.avatar',
+                '.thumbnail', '.poster', '.banner', '.header-image', '.footer-image'
+            ]
             
             for selector in image_selectors:
                 elements = await slide_handle.query_selector_all(selector)
@@ -179,6 +239,10 @@ async def generate_editable_pptx(html_uri, output_path):
                     screenshot_path = f"temp_img_{i}_{int(rel_x)}_{int(rel_y)}.png"
                     try:
                         await el.screenshot(path=screenshot_path)
+                        
+                        # Optimize the image before adding to presentation
+                        optimize_image(screenshot_path)
+                        
                         slide.shapes.add_picture(
                             screenshot_path, 
                             Inches(rel_x * PX_TO_INCH), 
@@ -192,25 +256,143 @@ async def generate_editable_pptx(html_uri, output_path):
                         pass
 
             # --- LAYER 3: TEXT ---
+            # Enhanced text extraction with support for more HTML elements and nested structures
             text_data = await slide_handle.evaluate("""(slide) => {
                 const results = [];
                 const slideRect = slide.getBoundingClientRect();
+                
+                // Function to recursively extract text content while preserving structure
+                function extractTextContent(element) {
+                    let textContent = '';
+                    const directTextNodes = Array.from(element.childNodes).filter(node => 
+                        node.nodeType === 3 && node.nodeValue.trim().length > 0
+                    );
+                    
+                    directTextNodes.forEach(node => {
+                        textContent += node.nodeValue;
+                    });
+                    
+                    return textContent.trim();
+                }
+                
+                // Function to check if element has direct text content
                 function hasDirectText(el) {
                     return Array.from(el.childNodes).some(node => 
                         node.nodeType === 3 && node.nodeValue.trim().length > 0
                     );
                 }
+                
+                // Function to get all text content including nested elements
+                function getAllTextContent(element) {
+                    let text = '';
+                    const walker = document.createTreeWalker(
+                        element,
+                        NodeFilter.SHOW_TEXT,
+                        null,
+                        false
+                    );
+                    
+                    let node;
+                    while (node = walker.nextNode()) {
+                        text += node.nodeValue;
+                    }
+                    return text.trim();
+                }
+                
+                // More comprehensive selector for various text elements
+                const textSelectors = [
+                    'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
+                    'p', 'span', 'div', 'a', 'strong', 'b', 'em', 'i', 'u', 's', 'sub', 'sup',
+                    'li', 'td', 'th', 'caption', 'legend', 'label', 'button', 'input[type="button"]',
+                    '.text', '.content', '.title', '.subtitle', '.headline', '.subheadline',
+                    '.paragraph', '.description', '.note', '.caption', '.quote', '.blockquote',
+                    '.highlight', '.emphasis', '.important', '.warning', '.alert', '.info',
+                    '.header', '.footer', '.sidebar', '.nav', '.menu', '.breadcrumb',
+                    '.tag', '.badge', '.chip', '.tooltip', '.popover', '.modal',
+                    '.card', '.panel', '.box', '.section', '.container', '.wrapper'
+                ];
+                
+                textSelectors.forEach(selector => {
+                    const elements = slide.querySelectorAll(selector);
+                    elements.forEach(el => {
+                        if (el.closest('.viz-box') || el.closest('.dashboard-placeholder')) return;
+                        if (el.tagName === 'I' || el.classList.contains('bi')) return;
 
+                        if (hasDirectText(el)) {
+                            const style = window.getComputedStyle(el);
+                            const rect = el.getBoundingClientRect();
+                            
+                            // Get text content preserving structure
+                            const textContent = extractTextContent(el);
+                            
+                            // Extract href for hyperlinks
+                            let href = null;
+                            if (el.tagName === 'A' && el.href) {
+                                href = el.href;
+                            }
+                            
+                            // Check if this element is inside an anchor tag
+                            const parentAnchor = el.closest('a');
+                            if (parentAnchor && !href) {
+                                href = parentAnchor.href;
+                            }
+                            
+                            results.push({
+                                text: textContent, 
+                                tagName: el.tagName,
+                                x: rect.x - slideRect.x,
+                                y: rect.y - slideRect.y,
+                                w: rect.width,
+                                h: rect.height,
+                                color: style.color,
+                                fontSize: style.fontSize,
+                                fontFamily: style.fontFamily,
+                                fontWeight: style.fontWeight,
+                                textAlign: style.textAlign,
+                                textTransform: style.textTransform,
+                                textDecoration: style.textDecoration,
+                                href: href, // Add hyperlink support
+                                isNested: el.parentElement !== slide // Flag if nested
+                            });
+                        }
+                    });
+                });
+                
+                // Also check for any other elements that might contain text
                 const allEls = slide.querySelectorAll('*');
                 allEls.forEach(el => {
                     if (el.closest('.viz-box') || el.closest('.dashboard-placeholder')) return;
                     if (el.tagName === 'I' || el.classList.contains('bi')) return;
-
-                    if (hasDirectText(el)) {
+                    if (el.tagName === 'IMG' || el.tagName === 'SVG' || el.tagName === 'CANVAS') return;
+                    
+                    // Check if this element is already processed by the specific selectors
+                    const isAlreadyProcessed = results.some(r => {
+                        const existingEl = document.elementFromPoint(
+                            r.x + slideRect.x + r.w/2, 
+                            r.y + slideRect.y + r.h/2
+                        );
+                        return existingEl === el || el.contains(existingEl);
+                    });
+                    
+                    if (!isAlreadyProcessed && hasDirectText(el)) {
                         const style = window.getComputedStyle(el);
                         const rect = el.getBoundingClientRect();
+                        const textContent = extractTextContent(el);
+                        
+                        // Extract href for hyperlinks
+                        let href = null;
+                        if (el.tagName === 'A' && el.href) {
+                            href = el.href;
+                        }
+                        
+                        // Check if this element is inside an anchor tag
+                        const parentAnchor = el.closest('a');
+                        if (parentAnchor && !href) {
+                            href = parentAnchor.href;
+                        }
+                        
                         results.push({
-                            text: el.innerText, 
+                            text: textContent, 
                             tagName: el.tagName,
                             x: rect.x - slideRect.x,
                             y: rect.y - slideRect.y,
@@ -221,10 +403,14 @@ async def generate_editable_pptx(html_uri, output_path):
                             fontFamily: style.fontFamily,
                             fontWeight: style.fontWeight,
                             textAlign: style.textAlign,
-                            textTransform: style.textTransform
+                            textTransform: style.textTransform,
+                            textDecoration: style.textDecoration,
+                            href: href, // Add hyperlink support
+                            isNested: el.parentElement !== slide
                         });
                     }
                 });
+                
                 return results;
             }""")
 
@@ -237,12 +423,28 @@ async def generate_editable_pptx(html_uri, output_path):
                 tw = Inches(txt['w'] * PX_TO_INCH)
                 th = Inches(txt['h'] * PX_TO_INCH)
 
+                # Better text wrapping and overflow handling
+                # Ensure minimum dimensions for text boxes
+                if tw < Inches(0.5):
+                    tw = Inches(0.5)
+                if th < Inches(0.25):
+                    th = Inches(0.25)
+
                 textbox = slide.shapes.add_textbox(tx, ty, tw, th)
                 tf = textbox.text_frame
                 tf.word_wrap = True
+                tf.auto_size = False  # Disable auto-size for better control
+                
+                # Better text overflow handling
+                tf.fit_text = True  # Fit text to shape
+                tf.margin_top = Pt(2)
+                tf.margin_bottom = Pt(2)
+                tf.margin_left = Pt(2)
+                tf.margin_right = Pt(2)
                 
                 p_node = tf.paragraphs[0]
                 
+                # Handle special list items
                 if txt['tagName'] == 'LI' and not content.startswith("■"):
                     content = "■ " + content
 
@@ -254,23 +456,56 @@ async def generate_editable_pptx(html_uri, output_path):
                 
                 run = p_node.runs[0]
                 rgb = css_rgb_to_pptx_color(txt['color'])
-                if rgb: run.font.color.rgb = rgb
+                if rgb: 
+                    run.font.color.rgb = rgb
                 
+                # Handle font size with better precision
                 size_match = re.match(r'([\d.]+)px', txt['fontSize'])
                 if size_match:
-                    run.font.size = Pt(float(size_match.group(1)) * 0.75) 
+                    # Convert px to points (1px = 0.75pt)
+                    px_size = float(size_match.group(1))
+                    # Apply scaling factor for better visual match
+                    scaled_size = px_size * 0.75
+                    run.font.size = Pt(scaled_size) 
                 
+                # Font mapping for better typography preservation
                 font_family = txt['fontFamily'].lower()
-                if 'helvetica' in font_family: run.font.name = 'Helvetica'
-                elif 'arial' in font_family: run.font.name = 'Arial'
+                matched_font = None
+                for key, value in FONT_MAPPING.items():
+                    if key in font_family:
+                        matched_font = value
+                        break
+                if matched_font:
+                    run.font.name = matched_font
+                else:
+                    # Fallback to common fonts
+                    if 'helvetica' in font_family: run.font.name = 'Helvetica'
+                    elif 'arial' in font_family: run.font.name = 'Arial'
+                    elif 'times' in font_family: run.font.name = 'Times New Roman'
+                    else: run.font.name = 'Calibri'  # Default to Calibri
                 
+                # Handle font weight
                 if 'bold' in str(txt['fontWeight']) or (str(txt['fontWeight']).isdigit() and int(txt['fontWeight']) >= 600):
                     run.font.bold = True
+                
+                # Handle text decoration (underline, strikethrough)
+                if txt['textDecoration'] and 'underline' in txt['textDecoration']:
+                    run.font.underline = True
+                if txt['textDecoration'] and ('line-through' in txt['textDecoration'] or 'strikethrough' in txt['textDecoration']):
+                    run.font.strike = True
+                
+                # Add hyperlink support
+                if txt['href']:
+                    try:
+                        run.hyperlink.address = txt['href']
+                    except:
+                        pass  # If hyperlink fails, continue without it
 
         await browser.close()
 
     prs.save(output_path)
     print(f"Saved {output_path}")
+
 
 async def main():
     parser = argparse.ArgumentParser(description="Convert HTML presentation to PPTX (Screenshot & Editable)")
@@ -296,6 +531,7 @@ async def main():
     await generate_editable_pptx(html_uri, output_editable)
     
     print("Done.")
+
 
 if __name__ == "__main__":
     asyncio.run(main())

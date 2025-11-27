@@ -10,5 +10,5 @@ fi
 
 # Activate venv and run
 source "$VENV_DIR/bin/activate"
-python "$SCRIPT_DIR/html2ppt.py" "$@"
+python "$SCRIPT_DIR/html2ppt_new.py" "$@"
 deactivate
